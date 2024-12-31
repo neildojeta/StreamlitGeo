@@ -9,7 +9,8 @@ st.set_page_config(page_title="Census Blocks Map", layout="wide")
 
 # Sidebar inputs
 st.sidebar.title("Census Blocks Map - Public APIs Only")
-api_key = st.sidebar.text_input("Census API Key", "YOUR_CENSUS_API_KEY_HERE")
+# api_key = st.sidebar.text_input("Census API Key", "YOUR_CENSUS_API_KEY_HERE")
+api_key = "49805721fc58f58ce1a40cacf62d6765d8f923ed"
 state_fips = st.sidebar.text_input("State FIPS", "44")    # Default: Rhode Island
 county_fips = st.sidebar.text_input("County FIPS", "007")
 variable = st.sidebar.selectbox("Variable", ["H1_001N"])  # Total population (2020 DHC)

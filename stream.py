@@ -110,9 +110,9 @@ def color_scale(val):
         ratio = 0
     else:
         ratio = (val - min_val) / (max_val - min_val)
-    r = int(255 * ratio)
-    g = int(255 * (1 - ratio))
-    b = 0
+    r = int(255 * (1 - ratio))  # Red decreases as value increases
+    g = int(255 * ratio)  # Green increases as value increases
+    b = int(255 * (1 - ratio))  # Blue decreases as value increases
     return [r, g, b]
 
 for i, feature in enumerate(geojson["features"]):
@@ -123,54 +123,51 @@ logging.info("Applied color scale to GeoJSON features.")
 st.title("Census Block Data (Public APIs Only)")
 st.write(f"Variable: {variable}")
 st.write("Hover over a block to see its value.")
-# --- Visualize the first coordinate using Pydeck ---
-if geojson["features"]:
-    first_feature = geojson["features"][0]
-    first_geom = first_feature["geometry"]
-    if first_geom["type"] == "Polygon":
-        first_coords = first_geom["coordinates"][0]
-    elif first_geom["type"] == "MultiPolygon":
-        first_coords = first_geom["coordinates"][0][0]
+# Prepare list of coordinates from the GeoJSON features
+coordinates = []
+for feature in geojson["features"]:
+    geom = feature["geometry"]
+    if geom["type"] == "Polygon":
+        coords = geom["coordinates"][0]  # Polygon coordinates
+    elif geom["type"] == "MultiPolygon":
+        coords = geom["coordinates"][0][0]  # MultiPolygon coordinates
     else:
-        first_coords = []
+        coords = []
+    
+    # Add all coordinates to the list
+    for coord in coords:
+        lon, lat = coord
+        coordinates.append({"lat": lat, "lon": lon})
 
-    if first_coords:
-        first_lon, first_lat = first_coords[0]
-        
-        # Log the first coordinates for debugging
-        logging.info(f"First coordinates: {first_lat}, {first_lon}")
+# If there are coordinates to plot
+if coordinates:
+    logging.info(f"Found {len(coordinates)} coordinates to plot.")
+    
+    # Create the pydeck map
+    deck = pdk.Deck(
+        initial_view_state=pdk.ViewState(
+            latitude=coordinates[0]["lat"],  # Use the first coordinate to center the map
+            longitude=coordinates[0]["lon"],
+            zoom=zoom_level,
+            pitch=0
+        ),
+        layers=[
+            pdk.Layer(
+                "ScatterplotLayer",
+                data=coordinates,
+                get_position=["lon", "lat"],
+                get_radius=100,
+                get_fill_color=[255, 0, 0],  # Red color for the points
+                pickable=True
+            )
+        ]
+    )
 
-        # Default zoom level for testing
-        zoom_level = 12
-
-        # Create a basic pydeck map
-        deck = pdk.Deck(
-            initial_view_state=pdk.ViewState(
-                latitude=first_lat,
-                longitude=first_lon,
-                zoom=zoom_level,  # A reasonable default zoom level
-                pitch=0
-            ),
-            layers=[
-                pdk.Layer(
-                    "ScatterplotLayer",
-                    data=[{"lat": first_lat, "lon": first_lon}],
-                    get_position=["lon", "lat"],
-                    get_radius=100,
-                    get_fill_color=[255, 0, 0],  # Red color for the point
-                    pickable=True
-                )
-            ]
-        )
-
-        # Render the pydeck map
-        st.pydeck_chart(deck)
-        logging.info(f"Visualized first coordinate at ({first_lat}, {first_lon}).")
-    else:
-        logging.error("First feature does not have valid coordinates.")
-        st.error("First feature does not have valid coordinates.")
+    # Render the pydeck map
+    st.pydeck_chart(deck)
+    logging.info("Visualized all coordinates on the map.")
 else:
-    st.error("GeoJSON features are empty.")
-    logging.error("GeoJSON features are empty.")
+    logging.error("No coordinates found to plot.")
+    st.error("No coordinates found to plot.")
 
 logging.info("Application finished.")

@@ -47,7 +47,7 @@ def plot_state_geometry(state_name, api_key):
         plt.xlabel("Longitude")
         plt.ylabel("Latitude")
         plt.axis("equal")
-        plt.grid(True)
+        # plt.grid(True)
         plt.show()
     
     except requests.exceptions.RequestException as e:
