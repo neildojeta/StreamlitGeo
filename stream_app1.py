@@ -4,7 +4,6 @@ import pandas as pd
 import pydeck as pdk
 import json
 import logging
-import numpy as np
 from datetime import datetime
 
 # Set up logging
@@ -25,12 +24,11 @@ state_fips = st.sidebar.text_input("State FIPS", "44")  # Default: Rhode Island
 county_fips = st.sidebar.text_input("County FIPS", "007")
 variable = st.sidebar.selectbox("Variable", ["H1_001N"])  # Total population (2020 DHC)
 zoom_level = 12
-# zoom_level = st.sidebar.slider("Map Zoom", 10, 20, 12)
 
 logging.info(f"State FIPS: {state_fips}, County FIPS: {county_fips}, Variable: {variable}, Zoom Level: {zoom_level}")
 
 if not api_key:
-    st.warning("Please provide a Census API Key in the sidebar.") 
+    st.warning("Please provide a Census API Key in the sidebar.")
     logging.error("API Key not provided.")
     st.stop()
 
@@ -88,89 +86,102 @@ except json.JSONDecodeError as e:
     st.error("Error decoding GeoJSON response from TIGERweb.")
     st.stop()
 
-# Merge tabular data into the GeoJSON properties
-geo_features = {f["properties"]["GEOID"]: f for f in geojson["features"]}
-
-for i, feature in enumerate(geojson["features"]):
-    geoid = feature["properties"]["GEOID"]
-    row = df.loc[df["GEOID"] == geoid]
-    if not row.empty:
-        val = row[variable].values[0]
-        geojson["features"][i]["properties"][variable] = val
+# Prepare list of coordinates from the GeoJSON features
+coordinates = []
+for feature in geojson["features"]:
+    geom = feature["geometry"]
+    if geom["type"] == "Polygon":
+        coords = geom["coordinates"][0]  # Polygon coordinates
+    elif geom["type"] == "MultiPolygon":
+        coords = geom["coordinates"][0][0]  # MultiPolygon coordinates
     else:
-        geojson["features"][i]["properties"][variable] = 0
-logging.info("Merged tabular data into GeoJSON properties.")
+        coords = []
+    
+    for coord in coords:
+        lon, lat = coord
+        coordinates.append({"lat": lat, "lon": lon})
 
-# Prepare a color scale function
-vals = [f["properties"][variable] for f in geojson["features"]]
-min_val, max_val = min(vals), max(vals) if vals else (0, 1)
+# --- Navigation and Toggle ---
+if "current_index" not in st.session_state:
+    st.session_state.current_index = 0
 
-def color_scale(val):
-    if max_val == min_val:
-        ratio = 0
-    else:
-        ratio = (val - min_val) / (max_val - min_val)
-    r = int(255 * ratio)
-    g = int(255 * (1 - ratio))
-    b = 0
-    return [r, g, b]
+if "show_all" not in st.session_state:
+    st.session_state.show_all = False
 
-for i, feature in enumerate(geojson["features"]):
-    val = feature["properties"][variable]
-    feature["properties"]["fill_color"] = color_scale(val)
-logging.info("Applied color scale to GeoJSON features.")
+# Toggle button
+st.sidebar.markdown("### View Options")
+if st.sidebar.button("Toggle View (All / Navigate)"):
+    st.session_state.show_all = not st.session_state.show_all
 
-st.title("Census Block Data (Public APIs Only)")
-st.write(f"Variable: {variable}")
-st.write("Hover over a block to see its value.")
-# --- Visualize the first coordinate using Pydeck ---
-if geojson["features"]:
-    first_feature = geojson["features"][0]
-    first_geom = first_feature["geometry"]
-    if first_geom["type"] == "Polygon":
-        first_coords = first_geom["coordinates"][0]
-    elif first_geom["type"] == "MultiPolygon":
-        first_coords = first_geom["coordinates"][0][0]
-    else:
-        first_coords = []
+# Navigation buttons are disabled if "Show All" is enabled
+if not st.session_state.show_all:
+    st.sidebar.markdown("### Navigation")
+    prev_disabled = st.session_state.current_index <= 0
+    next_disabled = st.session_state.current_index >= len(coordinates) - 1
 
-    if first_coords:
-        first_lon, first_lat = first_coords[0]
-        
-        # Log the first coordinates for debugging
-        logging.info(f"First coordinates: {first_lat}, {first_lon}")
+    prev_button = st.sidebar.button("Previous", disabled=prev_disabled)
+    next_button = st.sidebar.button("Next", disabled=next_disabled)
 
-        # Default zoom level for testing
-        zoom_level = 12
+    if prev_button and not prev_disabled:
+        st.session_state.current_index -= 1
+    elif next_button and not next_disabled:
+        st.session_state.current_index += 1
 
-        # Create a basic pydeck map
+current_index = st.session_state.current_index
+
+# Display map
+if st.session_state.show_all:
+    # Show all coordinates
+    deck = pdk.Deck(
+        initial_view_state=pdk.ViewState(
+            latitude=coordinates[0]["lat"],
+            longitude=coordinates[0]["lon"],
+            zoom=zoom_level,
+            pitch=0
+        ),
+        layers=[
+            pdk.Layer(
+                "ScatterplotLayer",
+                data=coordinates,
+                get_position=["lon", "lat"],
+                get_radius=100,
+                get_fill_color=[255, 0, 0],
+                pickable=True
+            )
+        ]
+    )
+    st.pydeck_chart(deck)
+    st.write(f"Showing all {len(coordinates)} coordinates.")
+else:
+    # Navigate through coordinates
+    if coordinates:
+        current_coord = coordinates[current_index]
+        lat, lon = current_coord["lat"], current_coord["lon"]
+
         deck = pdk.Deck(
             initial_view_state=pdk.ViewState(
-                latitude=first_lat,
-                longitude=first_lon,
-                zoom=zoom_level,  # A reasonable default zoom level
+                latitude=lat,
+                longitude=lon,
+                zoom=zoom_level,
                 pitch=0
             ),
             layers=[
                 pdk.Layer(
                     "ScatterplotLayer",
-                    data=[{"lat": first_lat, "lon": first_lon}],
+                    data=[current_coord],
                     get_position=["lon", "lat"],
                     get_radius=100,
-                    get_fill_color=[255, 0, 0],  # Red color for the point
+                    get_fill_color=[255, 0, 0],
                     pickable=True
                 )
             ]
         )
 
-        # Render the pydeck map
         st.pydeck_chart(deck)
-        logging.info(f"Visualized first coordinate at ({first_lat}, {first_lon}).")
+        st.write(f"Coordinate {current_index + 1} of {len(coordinates)}")
+        st.write(f"Latitude: {lat}, Longitude: {lon}")
     else:
-        logging.error("First feature does not have valid coordinates.")
-        st.error("First feature does not have valid coordinates.")
-else:
-    st.error("GeoJSON features are empty.")
-    logging.error("GeoJSON features are empty.")
+        logging.error("No coordinates found.")
+        st.error("No coordinates found.")
 
 logging.info("Application finished.")
